@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Crystal Merge · Portal World</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#050A24;color:#EAF6FF;font-family:Inter,system-ui,sans-serif;-webkit-tap-highlight-color:transparent;user-select:none;touch-action:none}
+#bg{position:fixed;inset:0;width:100%;height:100%;z-index:0}
+#stage{position:fixed;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:64px 12px 24px;box-sizing:border-box}
+#goal{font-family:Orbitron,Inter,sans-serif;font-weight:800;letter-spacing:.12em;font-size:13px;color:#E6ECF5;text-shadow:0 0 10px #E6ECF5,0 0 22px rgba(230,236,245,.6);margin-bottom:14px;text-align:center}
+#board{--n:4;--gap:clamp(8px,2.2vw,12px);--size:min(92vw,62vh,460px);position:relative;width:var(--size);height:var(--size);border-radius:22px;padding:var(--gap);box-sizing:border-box;background:linear-gradient(160deg,rgba(62,242,255,.10),rgba(139,92,246,.10) 60%,rgba(255,46,154,.08));border:1px solid rgba(62,242,255,.55);box-shadow:0 0 28px rgba(62,242,255,.25),inset 0 0 30px rgba(62,242,255,.08)}
+.cell{position:absolute;border-radius:14px;background:rgba(10,20,64,.55);border:1px solid rgba(62,242,255,.12)}
+.tile{position:absolute;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .12s ease-out;will-change:transform;z-index:2}
+.tile .gem{width:58%;height:58%;clip-path:polygon(50% 0,100% 38%,80% 100%,20% 100%,0 38%);position:relative}
+.tile .gem:after{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.75),rgba(255,255,255,0) 45%,rgba(0,0,0,.25));clip-path:polygon(50% 0,100% 38%,80% 100%,20% 100%,0 38%)}
+.tile .lbl{font:800 clamp(9px,2.3vw,12px) Orbitron,Inter,sans-serif;letter-spacing:.05em;margin-top:2px;color:#fff;text-shadow:0 0 6px rgba(0,0,0,.6)}
+.tile.new{animation:pop .18s ease-out}
+.tile.merged{animation:merge .22s ease-out}
+@keyframes pop{from{opacity:0;scale:.4}to{opacity:1;scale:1}}
+@keyframes merge{50%{scale:1.18}100%{scale:1}}
+#tools{margin-top:16px;display:flex;gap:12px}
+.tool{min-height:44px;padding:10px 20px;border-radius:999px;border:1.5px solid #FF8A3D;background:rgba(10,20,64,.6);color:#fff;font:700 14px Inter,sans-serif;cursor:pointer;box-shadow:0 0 12px rgba(255,138,61,.3);touch-action:manipulation}
+.tool:disabled{opacity:.35;cursor:default}
+canvas#fx{position:fixed;inset:0;z-index:3;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div id="stage"><div id="goal" style="visibility:hidden"></div><div id="board"></div><div id="tools"><button class="tool" id="undo">Undo (1)</button></div></div>
+<canvas id="fx"></canvas>
+<script src="../../03-world/kit/portal-kit.js"></script>
+<script>
+(function(){
+"use strict";
+/* Crystal tiers: tier k is worth 2^k points when formed. Tier 11 (the Starheart) wins. */
+var TIERS=[null,
+ ["Spark","#8EA2FF"],["Shard","#3EF2FF"],["Quartz","#FFB8DC"],["Jade","#7CFF6B"],["Topaz","#FFC857"],["Amber","#FF8A3D"],
+ ["Ruby","#FF2E9A"],["Amethyst","#8B5CF6"],["Sapphire","#4C7DFF"],["Diamond","#E6ECF5"],["Starheart","#FFFFFF"]];
+var WIN=11,N=4;
+var board=document.getElementById("board"),grid,tiles,prev=null,undoLeft=1,moving=false,uid=0,won=false;
+var undoBtn=document.getElementById("undo");
+var goalEl=document.getElementById("goal");goalEl.textContent="MERGE UP TO THE STARHEART";
+
+function geo(){var r=board.getBoundingClientRect(),gap=parseFloat(getComputedStyle(board).getPropertyValue("--gap"))||10;var inner=r.width-gap*2;var cs=(inner-gap*(N-1))/N;return{gap:gap,cs:cs};}
+function pos(r,c){var g=geo();return{x:g.gap+c*(g.cs+g.gap),y:g.gap+r*(g.cs+g.gap),s:g.cs};}
+function drawCells(){board.innerHTML="";for(var r=0;r<N;r++)for(var c=0;c<N;c++){var p=pos(r,c),d=document.createElement("div");d.className="cell";d.style.cssText="left:"+p.x+"px;top:"+p.y+"px;width:"+p.s+"px;height:"+p.s+"px";board.appendChild(d);}}
+function makeTile(t){var d=document.createElement("div");d.className="tile";var T=TIERS[t.v];
+  d.innerHTML='<div class="gem"></div><div class="lbl"></div>';style(d,t);board.appendChild(d);t.el=d;return d;}
+function style(d,t){var T=TIERS[t.v],p=pos(t.r,t.c);d.style.width=d.style.height=p.s+"px";d.style.left="0";d.style.top="0";d.style.transform="translate("+p.x+"px,"+p.y+"px)";
+  d.style.background="radial-gradient(circle at 50% 40%,"+T[1]+"33,rgba(10,20,64,.75) 70%)";d.style.border="1px solid "+T[1];d.style.boxShadow="0 0 "+(6+t.v*2)+"px "+T[1]+",inset 0 0 14px "+T[1]+"55";
+  var gem=d.querySelector(".gem");gem.style.background=T[1];gem.style.filter="drop-shadow(0 0 6px "+T[1]+")";d.querySelector(".lbl").textContent=T[0];}
+function empties(){var e=[];for(var r=0;r<N;r++)for(var c=0;c<N;c++)if(!grid[r][c])e.push([r,c]);return e;}
+function spawn(){var e=empties();if(!e.length)return;var p=e[Math.floor(Math.random()*e.length)];var t={id:++uid,r:p[0],c:p[1],v:Math.random()<.9?1:2};grid[p[0]][p[1]]=t;tiles.push(t);makeTile(t).classList.add("new");}
+function snapshot(){return{g:grid.map(function(row){return row.map(function(t){return t?t.v:0;});}),s:PortalKit.score};}
+function restore(snap){board.querySelectorAll(".tile").forEach(function(e){e.remove();});tiles=[];grid=[];for(var r=0;r<N;r++){grid.push([]);for(var c=0;c<N;c++){var v=snap.g[r][c];if(v){var t={id:++uid,r:r,c:c,v:v};grid[r].push(t);tiles.push(t);makeTile(t);}else grid[r].push(null);}}PortalKit.setScore(snap.s);}
+function canMove(){if(empties().length)return true;for(var r=0;r<N;r++)for(var c=0;c<N;c++){var v=grid[r][c].v;if(c+1<N&&grid[r][c+1].v===v)return true;if(r+1<N&&grid[r+1][c].v===v)return true;}return false;}
+
+function move(dir){if(!PortalKit.isPlaying()||moving)return;
+  var dr={up:-1,down:1,left:0,right:0}[dir],dc={left:-1,right:1,up:0,down:0}[dir];
+  var snap=snapshot(),moved=false,gain=0,merges=[],removed=[];
+  var rows=[0,1,2,3],cols=[0,1,2,3];if(dr===1)rows.reverse();if(dc===1)cols.reverse();
+  var mergedThisTurn={};
+  rows.forEach(function(r){cols.forEach(function(c){var t=grid[r][c];if(!t)return;var nr=r,nc=c;
+    while(true){var rr=nr+dr,cc=nc+dc;if(rr<0||rr>=N||cc<0||cc>=N)break;var o=grid[rr][cc];
+      if(!o){nr=rr;nc=cc;continue;}
+      if(o.v===t.v&&!mergedThisTurn[o.id]&&t.v<WIN){grid[r][c]=null;t.r=rr;t.c=cc;o.v++;mergedThisTurn[o.id]=1;gain+=Math.pow(2,o.v);merges.push(o);removed.push(t);moved=true;return;}
+      break;}
+    if(nr!==r||nc!==c){grid[r][c]=null;grid[nr][nc]=t;t.r=nr;t.c=nc;moved=true;}});});
+  if(!moved){return;}
+  prev=snap;moving=true;tiles.forEach(function(t){var p=pos(t.r,t.c);t.el.style.transform="translate("+p.x+"px,"+p.y+"px)";});
+  setTimeout(function(){removed.forEach(function(t){t.el.remove();});tiles=tiles.filter(function(t){return removed.indexOf(t)<0;});
+    merges.forEach(function(o){style(o.el,o);o.el.classList.remove("merged");void o.el.offsetWidth;o.el.classList.add("merged");var b=board.getBoundingClientRect(),p=pos(o.r,o.c);burst(b.left+p.x+p.s/2,b.top+p.y+p.s/2,TIERS[o.v][1],o.v);});
+    if(gain)PortalKit.addScore(gain);spawn();moving=false;updateUndo();
+    if(!won&&merges.some(function(o){return o.v>=WIN;})){won=true;setTimeout(function(){PortalKit.win(PortalKit.score,"You forged the Starheart crystal!");},500);return;}
+    if(!canMove())setTimeout(function(){PortalKit.lose(PortalKit.score,"The board is full. Highest crystal: "+TIERS[Math.max.apply(null,tiles.map(function(t){return t.v;}))][0]+".");},500);
+  },130);}
+function updateUndo(){undoBtn.textContent="Undo ("+undoLeft+")";undoBtn.disabled=!undoLeft||!prev;}
+undoBtn.onclick=function(){if(!PortalKit.isPlaying()||moving||!undoLeft||!prev)return;restore(prev);prev=null;undoLeft--;updateUndo();};
+
+function newGame(){drawCells();grid=[];for(var r=0;r<N;r++)grid.push([null,null,null,null]);tiles=[];prev=null;undoLeft=1;won=false;spawn();spawn();updateUndo();}
+addEventListener("keydown",function(e){var m={ArrowUp:"up",ArrowDown:"down",ArrowLeft:"left",ArrowRight:"right",w:"up",s:"down",a:"left",d:"right",W:"up",S:"down",A:"left",D:"right"}[e.key];if(m){e.preventDefault();move(m);}});
+PortalKit.onSwipe(document.getElementById("stage"),move,24);
+addEventListener("resize",function(){if(!grid)return;var snap=snapshot();drawCells();restore(snap);});
+
+/* effects */
+var fx=document.getElementById("fx"),fc=fx.getContext("2d"),parts=[];
+function sizeFx(){fx.width=innerWidth*devicePixelRatio;fx.height=innerHeight*devicePixelRatio;fc.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);}
+function burst(x,y,c,v){var n=10+v*3;for(var i=0;i<n;i++){var a=Math.random()*6.28,s=1+Math.random()*(2+v*.4);parts.push({x:x,y:y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,c:c,tri:Math.random()<.4});}}
+function fxLoop(){fc.clearRect(0,0,innerWidth,innerHeight);fc.globalCompositeOperation="lighter";
+  parts=parts.filter(function(p){p.x+=p.vx;p.y+=p.vy;p.vx*=.96;p.vy*=.96;p.life-=.025;if(p.life<=0)return false;fc.globalAlpha=p.life;fc.strokeStyle=fc.fillStyle=p.c;fc.shadowColor=p.c;fc.shadowBlur=10;fc.beginPath();
+    if(p.tri){fc.moveTo(p.x,p.y-4);fc.lineTo(p.x+4,p.y+3);fc.lineTo(p.x-4,p.y+3);fc.closePath();fc.lineWidth=1.2;fc.stroke();}else{fc.arc(p.x,p.y,2.2,0,6.28);fc.fill();}return true;});
+  fc.globalAlpha=1;fc.shadowBlur=0;requestAnimationFrame(fxLoop);}
+
+/* background: navy starfield, hex grid, rainbow light beams (style sheet, 17 Nov) */
+var bg=document.getElementById("bg"),bc=bg.getContext("2d"),stars=[];
+function sizeBg(){bg.width=innerWidth*devicePixelRatio;bg.height=innerHeight*devicePixelRatio;bc.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);stars=[];for(var i=0;i<140;i++)stars.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,r:Math.random()*1.4+.3,p:Math.random()*6});}
+function bgLoop(t){var w=innerWidth,h=innerHeight;var g=bc.createLinearGradient(0,0,0,h);g.addColorStop(0,"#0A1440");g.addColorStop(1,"#050A24");bc.fillStyle=g;bc.fillRect(0,0,w,h);
+  bc.save();bc.globalCompositeOperation="lighter";[["rgba(139,92,246,.10)",0],["rgba(62,242,255,.09)",40],["rgba(124,255,107,.06)",80]].forEach(function(b){var x=w*.62+b[1]+Math.sin(t/4000)*20;bc.fillStyle=b[0];bc.beginPath();bc.moveTo(x,-10);bc.lineTo(x+70,-10);bc.lineTo(x-w*.5+70,h+10);bc.lineTo(x-w*.5,h+10);bc.fill();});bc.restore();
+  bc.strokeStyle="rgba(62,242,255,.06)";bc.lineWidth=1;var s=34,hh=s*Math.sqrt(3)/2;for(var y=0,r=0;y<h+s;y+=hh,r++)for(var x=(r%2)*s*1.5;x<w+s;x+=s*3){bc.beginPath();for(var k=0;k<6;k++){var a=k*Math.PI/3;bc[k?"lineTo":"moveTo"](x+Math.cos(a)*s/2,y+Math.sin(a)*s/2);}bc.closePath();bc.stroke();}
+  stars.forEach(function(st){bc.globalAlpha=.4+.6*Math.abs(Math.sin(t/900+st.p));bc.fillStyle="#9FD8FF";bc.beginPath();bc.arc(st.x,st.y,st.r,0,6.28);bc.fill();});bc.globalAlpha=1;requestAnimationFrame(bgLoop);}
+addEventListener("resize",function(){sizeBg();sizeFx();});sizeBg();sizeFx();requestAnimationFrame(bgLoop);fxLoop();
+
+PortalKit.init({id:"crystal-merge",title:"Crystal Merge",color:"silver",goal:"Merge matching crystals until you forge the Starheart.",
+  howTo:["Swipe, or use the arrow keys, to slide every crystal at once.","Two matching crystals that touch fuse into the next tier.","Spark, Shard, Quartz, Jade, Topaz, Amber, Ruby, Amethyst, Sapphire, Diamond, then Starheart.","The run ends when the board fills with no merges left. You get one undo."],
+  onStart:function(){goalEl.style.visibility="visible";newGame();},onWin:function(){goalEl.style.visibility="hidden";},onLose:function(){goalEl.style.visibility="hidden";}});
+})();
+</script>
+</body>
+</html>
