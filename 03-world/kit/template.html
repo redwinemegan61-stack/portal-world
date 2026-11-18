@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GAME TITLE · Portal World</title>
+<style>html,body{margin:0;height:100%;background:linear-gradient(#0A1440,#050A24);overflow:hidden;touch-action:none}canvas{display:block;width:100%;height:100%}</style>
+</head><body>
+<canvas id="game"></canvas>
+<script src="../../03-world/kit/portal-kit.js"></script>
+<script>
+/* Minimal example: tap the glowing orb before it fades. Replace with your game. */
+var cv=document.getElementById("game"),cx=cv.getContext("2d"),W,H,orb,lives,raf;
+function size(){W=cv.width=innerWidth*devicePixelRatio;H=cv.height=innerHeight*devicePixelRatio;}addEventListener("resize",size);size();
+function spawn(){orb={x:W*(.15+Math.random()*.7),y:H*(.2+Math.random()*.65),r:40*devicePixelRatio,t:1};}
+function loop(){if(PortalKit.isPlaying()){orb.t-=.006;if(orb.t<=0){lives--;if(lives<=0){PortalKit.lose(null,"The orbs faded away.");}else spawn();}}
+  cx.clearRect(0,0,W,H);cx.globalAlpha=Math.max(orb.t,0);cx.fillStyle=PortalKit.colors.teal;cx.shadowColor=PortalKit.colors.teal;cx.shadowBlur=30;cx.beginPath();cx.arc(orb.x,orb.y,orb.r,0,7);cx.fill();cx.globalAlpha=1;raf=requestAnimationFrame(loop);}
+PortalKit.init({id:"template",title:"Orb Tap",color:"teal",goal:"Reach 20 taps to win.",
+  howTo:["Tap each orb before it fades","Miss three and it's over","Esc or P pauses"],
+  onStart:function(){lives=3;spawn();}});
+PortalKit.onTap(cv,function(x,y){x*=devicePixelRatio;y*=devicePixelRatio;if(Math.hypot(x-orb.x,y-orb.y)<orb.r*1.4){PortalKit.addScore(1);if(PortalKit.score>=20)PortalKit.win();else spawn();}});
+spawn();loop();
+</script></body></html>
